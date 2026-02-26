@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import TranscriptionWorker from './workers/transcriptionWorker?worker';
 import { processAudioForModel, cleanIpaOutput } from './utils/audioUtils';
+import { saveTranscription, getAllTranscriptions, deleteTranscription } from './utils/db';
 
 function App() {
   const [isReady, setIsReady] = useState(false);
@@ -10,12 +11,25 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [history, setHistory] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
 
   const worker = useRef(null);
   const mediaRecorder = useRef(null);
   const chunks = useRef([]);
+  const currentAudioBlob = useRef(null);
 
   useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const savedHistory = await getAllTranscriptions();
+        setHistory(savedHistory.sort((a, b) => b.id - a.id).slice(0, 50));
+      } catch (err) {
+        console.error('Failed to load history:', err);
+      }
+    };
+    loadHistory();
+
     console.log('App: Environment Diagnostics:', {
       crossOriginIsolated: window.crossOriginIsolated,
       isSecureContext: window.isSecureContext,
@@ -31,7 +45,7 @@ function App() {
       setStatus('Error: Worker failed to start. Check console.');
     };
 
-    worker.current.onmessage = (event) => {
+    worker.current.onmessage = async (event) => {
       const data = event.data;
       console.log('App: Received message from worker:', data);
 
@@ -59,7 +73,20 @@ function App() {
         setIsProcessing(false);
         const result = cleanIpaOutput(data.output);
         setTranscript(result);
-        setHistory(prev => [{ id: Date.now(), text: result }, ...prev].slice(0, 10));
+
+        const newItem = {
+          id: Date.now(),
+          text: result,
+          audio: currentAudioBlob.current
+        };
+
+        try {
+          await saveTranscription(newItem);
+          setHistory(prev => [newItem, ...prev].slice(0, 50));
+        } catch (err) {
+          console.error('Failed to save transcription:', err);
+        }
+
         setStatus('Transcription Complete');
       } else if (data.status === 'error') {
         console.error('App: AI Worker Error:', data.error);
@@ -88,6 +115,7 @@ function App() {
 
       mediaRecorder.current.onstop = async () => {
         const audioBlob = new Blob(chunks.current, { type: 'audio/wav' });
+        currentAudioBlob.current = audioBlob;
         setIsProcessing(true);
         setStatus('Processing Phonetics...');
 
@@ -117,6 +145,40 @@ function App() {
       stopRecording();
     } else {
       startRecording();
+    }
+  };
+
+  const startEdit = (item) => {
+    setEditingId(item.id);
+    setEditText(item.text);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+  };
+
+  const saveEdit = async (id) => {
+    const item = history.find(h => h.id === id);
+    if (!item) return;
+
+    const updatedItem = { ...item, text: editText };
+    try {
+      await saveTranscription(updatedItem);
+      setHistory(prev => prev.map(h => h.id === id ? updatedItem : h));
+      setEditingId(null);
+      if (transcript === item.text) setTranscript(editText);
+    } catch (err) {
+      console.error('Failed to save edit:', err);
+    }
+  };
+
+  const deleteItem = async (id) => {
+    try {
+      await deleteTranscription(id);
+      setHistory(prev => prev.filter(h => h.id !== id));
+    } catch (err) {
+      console.error('Failed to delete item:', err);
     }
   };
 
@@ -201,9 +263,45 @@ function App() {
             </div>
             <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', overflow: 'hidden' }}>
               {history.map(item => (
-                <div key={item.id} className="history-item">
-                  <span style={{ fontFamily: 'monospace', fontSize: '1.2rem' }}>{item.text}</span>
-                  <span style={{ fontSize: '0.7rem', opacity: 0.4 }}>{new Date(item.id).toLocaleTimeString()}</span>
+                <div key={item.id} className="history-item" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {editingId === item.id ? (
+                      <div style={{ flex: 1, display: 'flex', gap: '0.5rem' }}>
+                        <input
+                          type="text"
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          className="edit-input"
+                          style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: '1px solid #facc15', color: 'white', padding: '0.4rem', borderRadius: '4px', fontSize: '1.2rem', fontFamily: 'monospace' }}
+                        />
+                        <button className="btn-small" onClick={() => saveEdit(item.id)}>Save</button>
+                        <button className="btn-small btn-cancel" onClick={cancelEdit}>Cancel</button>
+                      </div>
+                    ) : (
+                      <>
+                        <span style={{ fontFamily: 'monospace', fontSize: '1.2rem' }}>{item.text}</span>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.7rem', opacity: 0.4 }}>{new Date(item.id).toLocaleTimeString()}</span>
+                          <button className="icon-btn" onClick={() => startEdit(item)} title="Edit">
+                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                              <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z" />
+                            </svg>
+                          </button>
+                          <button className="icon-btn btn-danger" onClick={() => deleteItem(item.id)} title="Delete">
+                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                              <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" />
+                              <path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  {item.audio && (
+                    <div style={{ width: '100%', marginTop: '0.2rem' }}>
+                      <audio controls src={URL.createObjectURL(item.audio)} style={{ width: '100%', height: '32px' }} />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

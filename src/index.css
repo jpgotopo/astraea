@@ -143,9 +143,60 @@ body {
 
 .history-item {
   text-align: left;
-  padding: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.btn-small {
+  padding: 0.3rem 0.8rem;
+  font-size: 0.8rem;
+  background: #facc15;
+  color: #000;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-cancel {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  padding: 4px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.icon-btn:hover {
+  color: #facc15;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-danger:hover {
+  color: #ef4444;
+}
+
+audio {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+audio::-webkit-media-controls-panel {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+
+  audio::-webkit-media-controls-play-button,
+  audio::-webkit-media-controls-current-time-display,
+  audio::-webkit-media-controls-time-remaining-display,
+  audio::-webkit-media-controls-mute-button,
+  audio::-webkit-media-controls-volume-slider {
+    filter: invert(1);
+  }
 }
