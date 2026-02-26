@@ -76,13 +76,13 @@ self.onmessage = async (event) => {
             const output = await transcriber(audio, {
                 chunk_length_s: 30,
                 stride_length_s: 5,
-                language: 'en', // Model is fine-tuned, but 'en' trigger is common for Whisper
+                language: 'en',
                 task: 'transcribe',
                 return_timestamps: false,
-                // Fixing repetition issues:
+                max_new_tokens: 448, // Standard for Whisper, ensures long output
                 repetition_penalty: 1.2,
                 no_repeat_ngram_size: 4,
-                do_sample: false, // Use beam search for more deterministic phonetic strings
+                do_sample: false,
             });
 
             self.postMessage({

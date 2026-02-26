@@ -1,330 +1,436 @@
 import React, { useState, useEffect, useRef } from 'react';
 import TranscriptionWorker from './workers/transcriptionWorker?worker';
 import { processAudioForModel, cleanIpaOutput } from './utils/audioUtils';
-import { saveTranscription, getAllTranscriptions, deleteTranscription } from './utils/db';
+import { saveData, getAllData, deleteData, getDataById } from './utils/db';
 
 function App() {
+  const [activeTab, setActiveTab] = useState('project'); // 'project', 'sessions', 'people'
   const [isReady, setIsReady] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('Initializing AI...');
+
+  // Projects State
+  const [projects, setProjects] = useState([]);
+  const [currentProject, setCurrentProject] = useState(null);
+
+  // People State
+  const [people, setPeople] = useState([]);
+  const [currentPerson, setCurrentPerson] = useState(null);
+
+  // Sessions State
+  const [sessions, setSessions] = useState([]);
+  const [currentSession, setCurrentSession] = useState(null);
+
+  // AI/Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcript, setTranscript] = useState('');
-  const [history, setHistory] = useState([]);
-  const [editingId, setEditingId] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
+  const [showMetadata, setShowMetadata] = useState(false);
 
   const worker = useRef(null);
   const mediaRecorder = useRef(null);
   const chunks = useRef([]);
+  const recordingSessionId = useRef(null); // Link recording to a specific session ID
   const currentAudioBlob = useRef(null);
 
   useEffect(() => {
-    const loadHistory = async () => {
-      try {
-        const savedHistory = await getAllTranscriptions();
-        setHistory(savedHistory.sort((a, b) => b.id - a.id).slice(0, 50));
-      } catch (err) {
-        console.error('Failed to load history:', err);
-      }
+    const initData = async () => {
+      const savedProjects = await getAllData('projects');
+      const savedPeople = await getAllData('people');
+      const savedSessions = await getAllData('sessions');
+
+      setProjects(savedProjects);
+      setPeople(savedPeople);
+      setSessions(savedSessions);
+
+      if (savedProjects.length > 0) setCurrentProject(savedProjects[0]);
     };
-    loadHistory();
+    initData();
 
-    console.log('App: Environment Diagnostics:', {
-      crossOriginIsolated: window.crossOriginIsolated,
-      isSecureContext: window.isSecureContext,
-      userAgent: navigator.userAgent
-    });
-
-    // Initialize Web Worker using Vite worker loader
-    console.log('App: Starting AI Worker...');
     worker.current = new TranscriptionWorker();
-
-    worker.current.onerror = (e) => {
-      console.error('App: Worker Native Error:', e);
-      setStatus('Error: Worker failed to start. Check console.');
-    };
-
     worker.current.onmessage = async (event) => {
       const data = event.data;
-      console.log('App: Received message from worker:', data);
-
-      if (data.status === 'alive') {
-        console.log('App: Worker acknowledged being alive.');
-        setStatus('AI Engine Initialized. Loading Model...');
-      } else if (data.status === 'initiate') {
-        setStatus(`Initializing ${data.file}...`);
-      } else if (data.status === 'progress') {
-        setProgress(data.progress || 0);
-        const loadedMB = data.loaded ? (data.loaded / 1024 / 1024).toFixed(1) : '0';
-
-        if (data.total) {
-          const totalMB = (data.total / 1024 / 1024).toFixed(1);
-          setStatus(`Downloading ${data.file}: ${loadedMB}MB / ${totalMB}MB (${data.progress?.toFixed(1) || 0}%)`);
-        } else {
-          setStatus(`Downloading ${data.file}: ${loadedMB}MB loaded...`);
-        }
-      } else if (data.status === 'done') {
-        setStatus(`Finished downloading ${data.file}`);
-      } else if (data.status === 'ready') {
-        setIsReady(true);
-        setStatus('Ready for Fieldwork');
-      } else if (data.status === 'complete') {
+      if (data.status === 'progress') setProgress(data.progress || 0);
+      else if (data.status === 'ready') setIsReady(true);
+      else if (data.status === 'complete') {
         setIsProcessing(false);
         const result = cleanIpaOutput(data.output);
         setTranscript(result);
 
-        const newItem = {
-          id: Date.now(),
-          text: result,
-          audio: currentAudioBlob.current
-        };
+        // Save using the ID when recording STARTED, to prevent data corruption
+        const targetId = recordingSessionId.current;
+        if (targetId) {
+          const sessionToUpdate = await getDataById('sessions', targetId);
+          if (sessionToUpdate) {
+            const updated = {
+              ...sessionToUpdate,
+              transcript: result,
+              audio: currentAudioBlob.current
+            };
+            await saveData('sessions', updated);
+            setSessions(prev => prev.map(s => s.id === targetId ? updated : s));
 
-        try {
-          await saveTranscription(newItem);
-          setHistory(prev => [newItem, ...prev].slice(0, 50));
-        } catch (err) {
-          console.error('Failed to save transcription:', err);
+            // If the user hasn't switched sessions, update the current view
+            if (currentSession?.id === targetId) {
+              setCurrentSession(updated);
+            }
+          }
+          recordingSessionId.current = null;
         }
-
-        setStatus('Transcription Complete');
-      } else if (data.status === 'error') {
-        console.error('App: AI Worker Error:', data.error);
-        setStatus('Error: ' + data.error);
-        setIsProcessing(false);
       }
     };
-
-    // Trigger pre-load
     worker.current.postMessage({ cmd: 'load' });
-
-    return () => {
-      worker.current.terminate();
-    };
+    return () => worker.current.terminate();
   }, []);
 
+  // Project Functions
+  const handleSaveProject = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData.entries());
+    const id = await saveData('projects', currentProject?.id ? { ...currentProject, ...data } : data);
+    const updated = await getDataById('projects', id);
+    setProjects(prev => currentProject?.id ? prev.map(p => p.id === id ? updated : p) : [...prev, updated]);
+    setCurrentProject(updated);
+    alert('Project Saved');
+  };
+
+  // Person Functions
+  const handleSavePerson = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData.entries());
+    const id = await saveData('people', currentPerson?.id ? { ...currentPerson, ...data } : data);
+    const updated = await getDataById('people', id);
+    setPeople(prev => currentPerson?.id ? prev.map(p => p.id === id ? updated : p) : [...prev, updated]);
+    setCurrentPerson(updated);
+    alert('Person Saved');
+  };
+
+  // Session Functions
+  const handleSaveSession = async (e) => {
+    e.preventDefault();
+    if (!currentProject) return alert('Please select or create a project first');
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData.entries());
+    const sessionData = {
+      ...data,
+      projectId: currentProject.id,
+      ...(currentSession?.id ? { id: currentSession.id, audio: currentSession.audio, transcript: currentSession.transcript } : {})
+    };
+    const id = await saveData('sessions', sessionData);
+    const updated = await getDataById('sessions', id);
+    setSessions(prev => currentSession?.id ? prev.map(s => s.id === id ? updated : s) : [...prev, updated]);
+    setCurrentSession(updated);
+    setShowMetadata(false);
+    alert('Session Saved');
+  };
+
+  // Recording Logic
   const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorder.current = new MediaRecorder(stream);
-      chunks.current = [];
+    if (!currentSession?.id) return alert('Select or Create a session first');
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder.current = new MediaRecorder(stream);
+    chunks.current = [];
+    recordingSessionId.current = currentSession.id; // Lock recording to this session
 
-      mediaRecorder.current.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.current.push(e.data);
-      };
-
-      mediaRecorder.current.onstop = async () => {
-        const audioBlob = new Blob(chunks.current, { type: 'audio/wav' });
-        currentAudioBlob.current = audioBlob;
-        setIsProcessing(true);
-        setStatus('Processing Phonetics...');
-
-        const audioBuffer = await processAudioForModel(audioBlob);
-        worker.current.postMessage({ audio: audioBuffer });
-      };
-
-      mediaRecorder.current.start();
-      setIsRecording(true);
-      setStatus('Listening to sounds...');
-    } catch (err) {
-      console.error('Mic Error:', err);
-      setStatus('Microphone access denied');
-    }
+    mediaRecorder.current.ondataavailable = (e) => chunks.current.push(e.data);
+    mediaRecorder.current.onstop = async () => {
+      const audioBlob = new Blob(chunks.current, { type: 'audio/wav' });
+      currentAudioBlob.current = audioBlob;
+      setIsProcessing(true);
+      const audioBuffer = await processAudioForModel(audioBlob);
+      worker.current.postMessage({ audio: audioBuffer });
+    };
+    mediaRecorder.current.start();
+    setIsRecording(true);
   };
 
   const stopRecording = () => {
-    if (mediaRecorder.current && isRecording) {
-      mediaRecorder.current.stop();
-      mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
-      setIsRecording(false);
-    }
-  };
-
-  const toggleRecording = () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
-  };
-
-  const startEdit = (item) => {
-    setEditingId(item.id);
-    setEditText(item.text);
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditText('');
-  };
-
-  const saveEdit = async (id) => {
-    const item = history.find(h => h.id === id);
-    if (!item) return;
-
-    const updatedItem = { ...item, text: editText };
-    try {
-      await saveTranscription(updatedItem);
-      setHistory(prev => prev.map(h => h.id === id ? updatedItem : h));
-      setEditingId(null);
-      if (transcript === item.text) setTranscript(editText);
-    } catch (err) {
-      console.error('Failed to save edit:', err);
-    }
-  };
-
-  const deleteItem = async (id) => {
-    try {
-      await deleteTranscription(id);
-      setHistory(prev => prev.filter(h => h.id !== id));
-    } catch (err) {
-      console.error('Failed to delete item:', err);
-    }
-  };
-
-  const exportHistory = () => {
-    const text = history.map(item => item.text).join('\n');
-    const blob = new Blob([text], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'fieldwork_transcript.txt';
-    a.click();
+    mediaRecorder.current?.stop();
+    mediaRecorder.current?.stream.getTracks().forEach(t => t.stop());
+    setIsRecording(false);
   };
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '20px' }}>
-      <main className="glass-card" style={{ maxWidth: '900px', width: '100%', textAlign: 'center' }}>
-        <header style={{ marginBottom: '2.5rem' }}>
-          <h1 className="title-gradient" style={{ fontSize: '3.5rem', margin: '0 0 0.5rem 0' }}>
-            Astraea
-          </h1>
-          <p style={{ opacity: 0.6, fontSize: '1.1rem', color: '#facc15' }}>
-            Universal Phonetic Fieldwork Tool
-          </p>
+      <main style={{ maxWidth: '1400px', width: '100%' }}>
+        <header style={{ marginBottom: '3rem', textAlign: 'center' }}>
+          <h1 className="title-gradient" style={{ fontSize: '4rem', marginBottom: '0.5rem' }}>Astraea</h1>
+          <p style={{ opacity: 0.6, color: '#facc15', fontSize: '1.2rem', fontWeight: 600 }}>Fieldwork Management System</p>
         </header>
 
+        <nav className="tabs-container">
+          <button className={`tab-btn ${activeTab === 'project' ? 'active' : ''}`} onClick={() => setActiveTab('project')}>Projects</button>
+          <button className={`tab-btn ${activeTab === 'people' ? 'active' : ''}`} onClick={() => setActiveTab('people')}>People</button>
+          <button className={`tab-btn ${activeTab === 'sessions' ? 'active' : ''}`} onClick={() => setActiveTab('sessions')}>Sessions</button>
+        </nav>
+
         {!isReady && (
-          <div style={{ marginBottom: '2rem' }}>
-            <div className="status-label">{status}</div>
-            <div className="progress-container">
-              <div className="progress-bar" style={{ width: `${progress}%` }}></div>
-            </div>
+          <div className="glass-card" style={{ textAlign: 'center', marginBottom: '3rem', padding: '3rem' }}>
+            <h2 style={{ marginTop: 0 }}>Initializing AI Phonetics Engine</h2>
+            <div className="progress-container"><div className="progress-bar" style={{ width: `${progress}%` }}></div></div>
+            <p className="status-label">Downloading Neural Modules... {progress.toFixed(1)}%</p>
           </div>
         )}
 
-        <section style={{ marginBottom: '3rem' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <button
-              className={`record-btn ${isRecording ? 'recording' : ''}`}
-              onClick={toggleRecording}
-              disabled={!isReady || isProcessing}
-              style={{ opacity: (!isReady || isProcessing) ? 0.5 : 1 }}
-            >
-              {isProcessing ? (
-                <div className="spinner"></div>
-              ) : (
-                <svg viewBox="0 0 24 24" width="40" height="40" fill="white">
-                  {isRecording ? (
-                    <rect x="6" y="6" width="12" height="12" rx="2" />
-                  ) : (
-                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-                  )}
-                </svg>
+        {/* PROJECT TAB */}
+        {activeTab === 'project' && (
+          <div className="sidebar-layout">
+            <aside>
+              <button className="btn-secondary primary" style={{ width: '100%', marginBottom: '1.5rem' }} onClick={() => setCurrentProject({})}>+ New Project</button>
+              <div className="list-pane">
+                {projects.map(p => (
+                  <div key={p.id} className={`list-item ${currentProject?.id === p.id ? 'selected' : ''}`} onClick={() => setCurrentProject(p)}>
+                    <strong style={{ display: 'block', fontSize: '1.1rem' }}>{p.name || 'Untitled Project'}</strong>
+                    <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>{p.region || 'No Region'}</span>
+                  </div>
+                ))}
+              </div>
+            </aside>
+            <section className="glass-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+                <h2 style={{ margin: 0 }}>Project Metadata</h2>
+                {currentProject?.id && <span style={{ opacity: 0.4, fontSize: '0.8rem' }}>UUID: {currentProject.id}</span>}
+              </div>
+              <form onSubmit={handleSaveProject} className="field-grid">
+                <div className="field-group"><label>Nombre del Proyecto*</label><input name="name" defaultValue={currentProject?.name} required placeholder="e.g. Documentación Quechua" /></div>
+                <div className="field-group"><label>Funding Project</label><input name="funding" defaultValue={currentProject?.funding} placeholder="Fondo u Organización" /></div>
+                <div className="field-group"><label>Región</label><input name="region" defaultValue={currentProject?.region} placeholder="Departamento / Estado" /></div>
+                <div className="field-group"><label>País</label><input name="country" defaultValue={currentProject?.country} placeholder="Nombre del país" /></div>
+                <div className="field-group" style={{ gridColumn: 'span 2' }}><label>Dirección</label><input name="address" defaultValue={currentProject?.address} placeholder="Ubicación o base local" /></div>
+                <div className="field-group" style={{ gridColumn: 'span 2' }}><label>Descripción</label><textarea name="description" defaultValue={currentProject?.description} placeholder="Resumen y objetivos del proyecto" /></div>
+                <div className="field-group"><label>Derechos de Autor</label><input name="copyright" defaultValue={currentProject?.copyright} placeholder="e.g. CC BY-NC" /></div>
+                <div className="field-group"><label>Responsable o Depositor</label><input name="responsible" defaultValue={currentProject?.responsible} placeholder="Investigador principal" /></div>
+                <button type="submit" className="btn-secondary primary" style={{ gridColumn: 'span 2', marginTop: '1.5rem' }}>Update Project Information</button>
+              </form>
+            </section>
+          </div>
+        )}
+
+        {/* PEOPLE TAB */}
+        {activeTab === 'people' && (
+          <div className="sidebar-layout">
+            <aside>
+              <button className="btn-secondary primary" style={{ width: '100%', marginBottom: '1.5rem' }} onClick={() => setCurrentPerson({})}>+ New Person</button>
+              <div className="list-pane">
+                {people.map(p => (
+                  <div key={p.id} className={`list-item ${currentPerson?.id === p.id ? 'selected' : ''}`} onClick={() => setCurrentPerson(p)}>
+                    <strong style={{ display: 'block', fontSize: '1.1rem' }}>{p.fullName || 'New Person'}</strong>
+                    <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>{p.nickname ? `"${p.nickname}"` : p.code || 'No Code'}</span>
+                  </div>
+                ))}
+              </div>
+            </aside>
+            <section className="glass-card">
+              <h2 style={{ marginBottom: '2rem' }}>Consultant Profile</h2>
+              <form onSubmit={handleSavePerson} className="field-grid">
+                <div className="field-group"><label>Nombre Completo*</label><input name="fullName" defaultValue={currentPerson?.fullName} required placeholder="Official Name" /></div>
+                <div className="field-group"><label>Nickname</label><input name="nickname" defaultValue={currentPerson?.nickname} placeholder="Community name" /></div>
+                <div className="field-group"><label>Código</label><input name="code" defaultValue={currentPerson?.code} placeholder="e.g. SPK01" /></div>
+                <div className="field-group"><label>Año de nacimiento</label><input type="number" name="birthYear" defaultValue={currentPerson?.birthYear} placeholder="YYYY" /></div>
+                <div className="field-group">
+                  <label>Género</label>
+                  <select name="gender" defaultValue={currentPerson?.gender}>
+                    <option value="">Select...</option>
+                    <option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option>
+                  </select>
+                </div>
+                <div className="field-group"><label>Lengua Primaria</label><input name="primaryLang" defaultValue={currentPerson?.primaryLang} placeholder="L1" /></div>
+                <div className="field-group"><label>Aprendida en</label><input name="learnedIn" defaultValue={currentPerson?.learnedIn} placeholder="Lugar donde aprendió L1" /></div>
+                <div className="field-group"><label>Grupo Étnico</label><input name="ethnic" defaultValue={currentPerson?.ethnic} placeholder="Identidad / Etnia" /></div>
+
+                <div className="field-group" style={{ gridColumn: 'span 2' }}>
+                  <label>Otros idiomas (Máximo 4)</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                    <input name="other1" defaultValue={currentPerson?.other1} placeholder="Idioma 2" />
+                    <input name="other2" defaultValue={currentPerson?.other2} placeholder="Idioma 3" />
+                    <input name="other3" defaultValue={currentPerson?.other3} placeholder="Idioma 4" />
+                    <input name="other4" defaultValue={currentPerson?.other4} placeholder="Idioma 5" />
+                  </div>
+                </div>
+
+                <div className="field-group"><label>Educación</label><input name="education" defaultValue={currentPerson?.education} placeholder="Nivel alcanzado" /></div>
+                <div className="field-group"><label>Ocupación actual</label><input name="occupation" defaultValue={currentPerson?.occupation} placeholder="Trabajo actual" /></div>
+                <div className="field-group" style={{ gridColumn: 'span 2' }}><label>Contacto</label><input name="contact" defaultValue={currentPerson?.contact} placeholder="Teléfono o medio de contacto" /></div>
+
+                <button type="submit" className="btn-secondary primary" style={{ gridColumn: 'span 2', marginTop: '1.5rem' }}>Save Consultant Record</button>
+              </form>
+            </section>
+          </div>
+        )}
+
+        {/* SESSIONS TAB */}
+        {activeTab === 'sessions' && (
+          <div className="sidebar-layout">
+            <aside>
+              <button className="btn-secondary primary" style={{ width: '100%', marginBottom: '1.5rem' }} onClick={() => {
+                setCurrentSession({});
+                setTranscript('');
+                setIsEditing(false);
+              }}>+ New Session</button>
+              <div className="list-pane">
+                {sessions.filter(s => s.projectId === currentProject?.id).map(s => (
+                  <div key={s.id} className={`list-item ${currentSession?.id === s.id ? 'selected' : ''}`} onClick={() => {
+                    setCurrentSession(s);
+                    setTranscript(s.transcript || '');
+                    setIsEditing(false);
+                  }}>
+                    <strong style={{ display: 'block', fontSize: '1.1rem' }}>{s.title || `Session ${s.id}`}</strong>
+                    <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>{s.date || 'No Date'}</span>
+                  </div>
+                ))}
+              </div>
+            </aside>
+            <section className="main-pane">
+              <div className="session-header">
+                <div>
+                  <h2 style={{ margin: 0 }}>{currentSession?.title || 'New Session'}</h2>
+                  {currentProject && <span style={{ color: '#facc15', fontSize: '0.9rem' }}>Project: {currentProject.name}</span>}
+                </div>
+                {currentSession?.id && (
+                  <button className="metadata-toggle" onClick={() => setShowMetadata(!showMetadata)}>
+                    {showMetadata ? 'Hide Metadata' : 'Edit Metadata'}
+                  </button>
+                )}
+              </div>
+
+              {(!currentSession?.id || showMetadata) && (
+                <div className="glass-card" style={{ padding: '2rem', marginBottom: '1rem' }}>
+                  <form onSubmit={handleSaveSession} className="field-grid">
+                    <div className="field-group"><label>Session ID</label><input name="sessionId" defaultValue={currentSession?.sessionId} placeholder="e.g. SES-001" /></div>
+                    <div className="field-group"><label>Session Title*</label><input name="title" defaultValue={currentSession?.title} required placeholder="Descriptive title" /></div>
+                    <div className="field-group"><label>Recording Date</label><input type="date" name="date" defaultValue={currentSession?.date} /></div>
+                    <div className="field-group"><label>Field Site / Place</label><input name="place" defaultValue={currentSession?.place} placeholder="Location of recording" /></div>
+
+                    <div className="field-group">
+                      <label>Persona (Dueña de la voz)*</label>
+                      <select name="personId" defaultValue={currentSession?.personId} required>
+                        <option value="">Select a person...</option>
+                        {people.map(p => <option key={p.id} value={p.id}>{p.fullName}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="field-group">
+                      <label>Género (Timbre de voz)</label>
+                      <select name="gender" defaultValue={currentSession?.gender}>
+                        <option value="">Select...</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other / Neutral</option>
+                      </select>
+                    </div>
+
+                    <div className="field-group"><label>Consultor / Ayudante</label><input name="consultant" defaultValue={currentSession?.consultant} placeholder="Researcher or assistant" /></div>
+
+                    <div className="field-group">
+                      <label>Situación / Contexto</label>
+                      <select name="context" defaultValue={currentSession?.context}>
+                        <option value="">Select context...</option>
+                        <option value="Narración">Narración</option>
+                        <option value="Cuento">Cuento</option>
+                        <option value="Entrevista">Entrevista</option>
+                        <option value="Conversación">Conversación</option>
+                        <option value="Lista de palabras">Lista de palabras</option>
+                        <option value="Otro">Otro</option>
+                      </select>
+                    </div>
+
+                    <div className="field-group" style={{ gridColumn: 'span 2' }}>
+                      <label>Descripción de la Sesión</label>
+                      <textarea name="description" defaultValue={currentSession?.description} placeholder="Detalles técnicos o notas sobre el contenido del audio" />
+                    </div>
+
+                    <button type="submit" className="btn-secondary primary" style={{ gridColumn: 'span 2' }}>
+                      {currentSession?.id ? 'Update Metadata' : 'Create Session to Start Recording'}
+                    </button>
+                  </form>
+                </div>
               )}
-            </button>
-            <p style={{ marginTop: '1.5rem', fontWeight: 600, color: isRecording ? '#ef4444' : '#fff' }}>
-              {isRecording ? 'RECORDING SOUNDS' : isProcessing ? 'AI TRANSCRIBING...' : 'TAP TO RECORD PHONEMES'}
-            </p>
-            <div className="status-label" style={{ marginTop: '5px' }}>{isReady ? status : ''}</div>
-          </div>
-        </section>
 
-        <section style={{ marginBottom: '3rem' }}>
-          <div className="ipa-display">
-            {transcript || '/ . . . /'}
-          </div>
-          {transcript && (
-            <button
-              className="btn-secondary"
-              style={{ marginTop: '1rem' }}
-              onClick={() => navigator.clipboard.writeText(transcript)}
-            >
-              Copy IPA
-            </button>
-          )}
-        </section>
+              {currentSession?.id && (
+                <div className="session-container">
+                  {/* TOP: Recording Section */}
+                  <div className="glass-card recording-panel" style={{ padding: '1.5rem' }}>
+                    <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
+                      <button className={`record-btn ${isRecording ? 'recording' : ''}`} onClick={isRecording ? stopRecording : startRecording} disabled={!isReady || isProcessing}>
+                        {isProcessing ? <div className="spinner"></div> : (
+                          <svg viewBox="0 0 24 24" width="36" height="36" fill="white">
+                            {isRecording ? <rect x="6" y="6" width="12" height="12" rx="2" /> : <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />}
+                          </svg>
+                        )}
+                      </button>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: isRecording ? '#ef4444' : '#facc15', fontWeight: 700, marginBottom: '0.5rem' }}>
+                          {isRecording ? 'RECORDING...' : isProcessing ? 'AI TRANSCRIBING...' : 'READY TO RECORD'}
+                        </div>
+                        {currentSession.audio && (
+                          <audio controls src={URL.createObjectURL(currentSession.audio)} style={{ width: '100%', height: '40px' }} />
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
-        {history.length > 0 && (
-          <section style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>Recent Transcripts</h3>
-              <button className="btn-secondary" onClick={exportHistory}>Export Documentation</button>
-            </div>
-            <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', overflow: 'hidden' }}>
-              {history.map(item => (
-                <div key={item.id} className="history-item" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    {editingId === item.id ? (
-                      <div style={{ flex: 1, display: 'flex', gap: '0.5rem' }}>
-                        <input
-                          type="text"
+                  {/* BOTTOM: Transcription Section */}
+                  <div className="glass-card transcription-panel" style={{ padding: '1.5rem', flex: 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <h3 style={{ margin: 0, color: '#facc15' }}>Transcription</h3>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        {!isEditing ? (
+                          <button className="btn-secondary" onClick={() => {
+                            setIsEditing(true);
+                            setEditText(transcript);
+                          }} disabled={!transcript}>Edit Transcript</button>
+                        ) : (
+                          <>
+                            <button className="btn-secondary primary" onClick={async () => {
+                              const updated = { ...currentSession, transcript: editText };
+                              await saveData('sessions', updated);
+                              setSessions(prev => prev.map(s => s.id === updated.id ? updated : s));
+                              setCurrentSession(updated);
+                              setTranscript(editText);
+                              setIsEditing(false);
+                            }}>Save Changes</button>
+                            <button className="btn-secondary" onClick={() => setIsEditing(false)}>Cancel</button>
+                          </>
+                        )}
+                        <button className="btn-secondary" onClick={() => {
+                          const blob = new Blob([transcript], { type: 'text/plain' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `session_${currentSession.id}_transcript.txt`;
+                          a.click();
+                        }} disabled={!transcript}>Export TXT</button>
+                      </div>
+                    </div>
+
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                      {isEditing ? (
+                        <textarea
+                          style={{ flex: 1, width: '100%', background: 'rgba(0,0,0,0.3)', color: 'white', border: '1px solid var(--primary)', borderRadius: '12px', padding: '1rem', fontSize: '1.5rem', fontFamily: 'Inter' }}
                           value={editText}
                           onChange={(e) => setEditText(e.target.value)}
-                          className="edit-input"
-                          style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: '1px solid #facc15', color: 'white', padding: '0.4rem', borderRadius: '4px', fontSize: '1.2rem', fontFamily: 'monospace' }}
                         />
-                        <button className="btn-small" onClick={() => saveEdit(item.id)}>Save</button>
-                        <button className="btn-small btn-cancel" onClick={cancelEdit}>Cancel</button>
-                      </div>
-                    ) : (
-                      <>
-                        <span style={{ fontFamily: 'monospace', fontSize: '1.2rem' }}>{item.text}</span>
-                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                          <span style={{ fontSize: '0.7rem', opacity: 0.4 }}>{new Date(item.id).toLocaleTimeString()}</span>
-                          <button className="icon-btn" onClick={() => startEdit(item)} title="Edit">
-                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                              <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z" />
-                            </svg>
-                          </button>
-                          <button className="icon-btn btn-danger" onClick={() => deleteItem(item.id)} title="Delete">
-                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                              <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" />
-                              <path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z" />
-                            </svg>
-                          </button>
+                      ) : (
+                        <div className="ipa-box" style={{ flex: 1, padding: '1.5rem', fontSize: '2rem' }}>
+                          {transcript || '[ No transcript yet ]'}
                         </div>
-                      </>
-                    )}
-                  </div>
-                  {item.audio && (
-                    <div style={{ width: '100%', marginTop: '0.2rem' }}>
-                      <audio controls src={URL.createObjectURL(item.audio)} style={{ width: '100%', height: '32px' }} />
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
-              ))}
-            </div>
-          </section>
+              )}
+            </section>
+          </div>
         )}
-
-        <footer style={{ marginTop: '4rem', opacity: 0.3, fontSize: '0.8rem' }}>
-          Neural Network: Wav2Vec2-LV-60 | Universal Phone Recognition
-        </footer>
       </main>
 
       <style>{`
-        .spinner {
-          width: 40px;
-          height: 40px;
-          border: 4px solid rgba(255, 255, 255, 0.3);
-          border-radius: 50%;
-          border-top-color: #fff;
-          animation: spin 1s ease-in-out infinite;
-        }
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
+        .spinner { width: 44px; height: 44px; border: 4px solid rgba(255, 255, 255, 0.2); border-radius: 50%; border-top-color: #facc15; animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
