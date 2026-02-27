@@ -58,6 +58,13 @@ body {
   width: 100%;
   max-width: 1300px;
   padding: 2.5rem;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1024px) {
+  #root {
+    padding: 1.5rem;
+  }
 }
 
 /* Glassmorphism Cards */
@@ -76,9 +83,24 @@ body {
   background: var(--item-bg);
   border: 1px solid var(--card-border);
   border-radius: 16px;
-  padding: 1.5rem;
   margin-bottom: 1.5rem;
   transition: all 0.3s ease;
+}
+
+.segment-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 1.5rem;
+  align-items: center;
+  padding: 1.25rem;
+}
+
+@media (max-width: 768px) {
+  .segment-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    padding: 1rem;
+  }
 }
 
 /* Typography */
@@ -103,6 +125,22 @@ body {
   border: 1px solid var(--btn-secondary-border);
   margin-left: auto;
   margin-right: auto;
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .tabs-container {
+    width: 100%;
+    overflow-x: auto;
+    justify-content: flex-start;
+    padding: 0.5rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-btn {
+    padding: 0.75rem 1.5rem;
+    white-space: nowrap;
+  }
 }
 
 .tab-btn {
@@ -131,9 +169,19 @@ body {
 /* Metadata Form Styles */
 .field-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 2rem;
   margin-bottom: 1.5rem;
+}
+
+@media (max-width: 640px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .title-gradient {
+    font-size: 2.5rem !important;
+  }
 }
 
 .field-group {
@@ -211,8 +259,19 @@ body {
   grid-template-columns: 320px 1fr;
   gap: 2rem;
   align-items: flex-start;
-  height: calc(100vh - 250px);
   min-height: 700px;
+}
+
+@media (max-width: 1024px) {
+  .sidebar-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: auto;
+  }
+
+  .list-pane {
+    max-height: 300px;
+  }
 }
 
 .list-pane {
@@ -243,6 +302,8 @@ body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
 }
 
 .recording-panel {

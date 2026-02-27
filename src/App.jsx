@@ -175,10 +175,10 @@ function App() {
   };
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '20px' }}>
-      <main style={{ maxWidth: '1400px', width: '100%' }}>
-        <header style={{ marginBottom: '3rem', textAlign: 'center', position: 'relative' }}>
-          <div style={{ position: 'absolute', right: 0, top: 0 }}>
+    <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+      <main style={{ width: '100%' }}>
+        <header style={{ marginBottom: '3rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ alignSelf: 'flex-end' }}>
             <button
               className="btn-secondary"
               onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -187,8 +187,8 @@ function App() {
               {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
             </button>
           </div>
-          <h1 className="title-gradient" style={{ fontSize: '4rem', marginBottom: '0.5rem' }}>Astraea</h1>
-          <p style={{ opacity: 0.6, color: 'var(--primary)', fontSize: '1.2rem', fontWeight: 600 }}>Fieldwork Management System</p>
+          <h1 className="title-gradient" style={{ fontSize: '4rem', marginBottom: '0.5rem', marginTop: '0' }}>Astraea</h1>
+          <p style={{ opacity: 0.6, color: 'var(--primary)', fontSize: '1.2rem', fontWeight: 600, margin: 0 }}>Fieldwork Management System</p>
         </header>
 
         <nav className="tabs-container">
@@ -440,7 +440,7 @@ function App() {
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
                       {segments.length > 0 ? (
                         segments.map((seg, idx) => (
-                          <div key={seg.id} className="item-card" style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '1.5rem', alignItems: 'center', padding: '1.25rem' }}>
+                          <div key={seg.id} className="item-card segment-grid">
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                               <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Segmento {idx + 1}</span>
                               <audio controls src={URL.createObjectURL(seg.audioBlob)} style={{ width: '100%', height: '32px' }} />
