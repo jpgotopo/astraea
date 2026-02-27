@@ -8,6 +8,12 @@ function App() {
   const [isReady, setIsReady] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('Initializing AI...');
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   // Projects State
   const [projects, setProjects] = useState([]);
@@ -157,9 +163,18 @@ function App() {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '20px' }}>
       <main style={{ maxWidth: '1400px', width: '100%' }}>
-        <header style={{ marginBottom: '3rem', textAlign: 'center' }}>
+        <header style={{ marginBottom: '3rem', textAlign: 'center', position: 'relative' }}>
+          <div style={{ position: 'absolute', right: 0, top: 0 }}>
+            <button
+              className="btn-secondary"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              style={{ padding: '0.6rem 1.2rem', borderRadius: '10px' }}
+            >
+              {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+            </button>
+          </div>
           <h1 className="title-gradient" style={{ fontSize: '4rem', marginBottom: '0.5rem' }}>Astraea</h1>
-          <p style={{ opacity: 0.6, color: '#facc15', fontSize: '1.2rem', fontWeight: 600 }}>Fieldwork Management System</p>
+          <p style={{ opacity: 0.6, color: 'var(--primary)', fontSize: '1.2rem', fontWeight: 600 }}>Fieldwork Management System</p>
         </header>
 
         <nav className="tabs-container">
