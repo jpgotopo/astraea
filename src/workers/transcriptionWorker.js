@@ -73,21 +73,46 @@ self.onmessage = async (event) => {
             console.log('TranscriptionWorker: Command: transcribe');
             const transcriber = await TranscriptionPipeline.getInstance((x) => self.postMessage(x));
 
-            const output = await transcriber(audio, {
-                chunk_length_s: 30,
-                stride_length_s: 5,
-                language: 'en',
-                task: 'transcribe',
-                return_timestamps: false,
-                max_new_tokens: 448, // Standard for Whisper, ensures long output
-                repetition_penalty: 1.2,
-                no_repeat_ngram_size: 4,
-                do_sample: false,
-            });
+            // Handle segments (array of Float32Array) or single buffer
+            const audioSegments = Array.isArray(audio) ? audio : [audio];
+            let fullTranscript = '';
+
+            for (let i = 0; i < audioSegments.length; i++) {
+                const segment = audioSegments[i];
+                self.postMessage({
+                    status: 'segment_start',
+                    index: i,
+                    total: audioSegments.length
+                });
+
+                const output = await transcriber(segment, {
+                    chunk_length_s: 30,
+                    stride_length_s: 5,
+                    language: 'en',
+                    task: 'transcribe',
+                    return_timestamps: false,
+                    max_new_tokens: 448,
+                    num_beams: 5, // Improved decoding strategy
+                    repetition_penalty: 1.1,
+                    no_repeat_ngram_size: 4,
+                    do_sample: false,
+                });
+
+                const segmentText = output.text.trim();
+                fullTranscript += (fullTranscript ? ' ' : '') + segmentText;
+
+                self.postMessage({
+                    status: 'segment_complete',
+                    index: i,
+                    text: segmentText,
+                    fullTranscript: fullTranscript,
+                    audioSegment: segment // Send back the buffer
+                });
+            }
 
             self.postMessage({
                 status: 'complete',
-                output: output.text,
+                output: fullTranscript,
             });
         }
     } catch (err) {

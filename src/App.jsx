@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import TranscriptionWorker from './workers/transcriptionWorker?worker';
-import { processAudioForModel, cleanIpaOutput } from './utils/audioUtils';
+import { processAudioForModel, cleanIpaOutput, float32ToWav } from './utils/audioUtils';
 import { saveData, getAllData, deleteData, getDataById } from './utils/db';
 
 function App() {
@@ -34,6 +34,7 @@ function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
   const [showMetadata, setShowMetadata] = useState(false);
+  const [segments, setSegments] = useState([]); // [{id, audioBlob, transcript}]
 
   const worker = useRef(null);
   const mediaRecorder = useRef(null);
@@ -60,12 +61,26 @@ function App() {
       const data = event.data;
       if (data.status === 'progress') setProgress(data.progress || 0);
       else if (data.status === 'ready') setIsReady(true);
+      else if (data.status === 'segment_start') {
+        setStatus(`Transcribing segment ${data.index + 1} of ${data.total}...`);
+      }
+      else if (data.status === 'segment_complete') {
+        const audioBlob = float32ToWav(data.audioSegment);
+        const newSegment = {
+          id: Date.now() + Math.random(),
+          audioBlob: audioBlob,
+          transcript: data.text
+        };
+        setSegments(prev => [...prev, newSegment]);
+        setTranscript(data.fullTranscript);
+      }
       else if (data.status === 'complete') {
         setIsProcessing(false);
+        setStatus('Ready');
         const result = cleanIpaOutput(data.output);
         setTranscript(result);
 
-        // Save using the ID when recording STARTED, to prevent data corruption
+        // Save using the ID when recording STARTED
         const targetId = recordingSessionId.current;
         if (targetId) {
           const sessionToUpdate = await getDataById('sessions', targetId);
@@ -73,15 +88,13 @@ function App() {
             const updated = {
               ...sessionToUpdate,
               transcript: result,
-              audio: currentAudioBlob.current
+              audio: currentAudioBlob.current,
+              segments: segments // This might be slightly stale if segments state hasn't updated yet?
             };
+            // Use functional update or ref for segments to be safe, but let's try this first
             await saveData('sessions', updated);
             setSessions(prev => prev.map(s => s.id === targetId ? updated : s));
-
-            // If the user hasn't switched sessions, update the current view
-            if (currentSession?.id === targetId) {
-              setCurrentSession(updated);
-            }
+            if (currentSession?.id === targetId) setCurrentSession(updated);
           }
           recordingSessionId.current = null;
         }
@@ -140,7 +153,8 @@ function App() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder.current = new MediaRecorder(stream);
     chunks.current = [];
-    recordingSessionId.current = currentSession.id; // Lock recording to this session
+    setSegments([]); // Reset segments for new recording
+    recordingSessionId.current = currentSession.id;
 
     mediaRecorder.current.ondataavailable = (e) => chunks.current.push(e.data);
     mediaRecorder.current.onstop = async () => {
@@ -291,6 +305,7 @@ function App() {
                   <div key={s.id} className={`list-item ${currentSession?.id === s.id ? 'selected' : ''}`} onClick={() => {
                     setCurrentSession(s);
                     setTranscript(s.transcript || '');
+                    setSegments(s.segments || []);
                     setIsEditing(false);
                   }}>
                     <strong style={{ display: 'block', fontSize: '1.1rem' }}>{s.title || `Session ${s.id}`}</strong>
@@ -378,8 +393,8 @@ function App() {
                         )}
                       </button>
                       <div style={{ flex: 1 }}>
-                        <div style={{ color: isRecording ? '#ef4444' : '#facc15', fontWeight: 700, marginBottom: '0.5rem' }}>
-                          {isRecording ? 'RECORDING...' : isProcessing ? 'AI TRANSCRIBING...' : 'READY TO RECORD'}
+                        <div style={{ color: isRecording ? '#ef4444' : 'var(--primary)', fontWeight: 700, marginBottom: '0.5rem' }}>
+                          {isRecording ? '• RECORDING...' : isProcessing ? status.toUpperCase() : 'READY TO RECORD'}
                         </div>
                         {currentSession.audio && (
                           <audio controls src={URL.createObjectURL(currentSession.audio)} style={{ width: '100%', height: '40px' }} />
@@ -422,13 +437,49 @@ function App() {
                       </div>
                     </div>
 
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                      {isEditing ? (
-                        <textarea
-                          style={{ flex: 1, width: '100%', background: 'rgba(0,0,0,0.3)', color: 'white', border: '1px solid var(--primary)', borderRadius: '12px', padding: '1rem', fontSize: '1.5rem', fontFamily: 'Inter' }}
-                          value={editText}
-                          onChange={(e) => setEditText(e.target.value)}
-                        />
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
+                      {segments.length > 0 ? (
+                        segments.map((seg, idx) => (
+                          <div key={seg.id} className="item-card" style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '1.5rem', alignItems: 'center', padding: '1.25rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Segmento {idx + 1}</span>
+                              <audio controls src={URL.createObjectURL(seg.audioBlob)} style={{ width: '100%', height: '32px' }} />
+                            </div>
+                            <div>
+                              <textarea
+                                value={seg.transcript}
+                                onChange={async (e) => {
+                                  const newSegments = [...segments];
+                                  newSegments[idx].transcript = e.target.value;
+                                  setSegments(newSegments);
+
+                                  // Sync with full transcript
+                                  const newFull = newSegments.map(s => s.transcript).join(' ');
+                                  setTranscript(newFull);
+
+                                  // Auto-save to DB for segments
+                                  if (currentSession?.id) {
+                                    const updated = { ...currentSession, segments: newSegments, transcript: newFull };
+                                    await saveData('sessions', updated);
+                                    setSessions(prev => prev.map(s => s.id === updated.id ? updated : s));
+                                  }
+                                }}
+                                style={{
+                                  width: '100%',
+                                  background: 'var(--input-bg)',
+                                  color: 'var(--text-main)',
+                                  border: '1px solid var(--card-border)',
+                                  borderRadius: '10px',
+                                  padding: '0.75rem',
+                                  fontSize: '1.1rem',
+                                  fontFamily: 'Inter',
+                                  resize: 'vertical',
+                                  minHeight: '60px'
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))
                       ) : (
                         <div className="ipa-box" style={{ flex: 1, padding: '1.5rem', fontSize: '2rem' }}>
                           {transcript || '[ No transcript yet ]'}
