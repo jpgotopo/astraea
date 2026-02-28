@@ -174,6 +174,30 @@ function App() {
     setIsRecording(false);
   };
 
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!currentSession?.id) return alert('Select or Create a session first');
+
+    setSegments([]); // Reset segments for new upload
+    recordingSessionId.current = currentSession.id;
+    currentAudioBlob.current = file;
+    setIsProcessing(true);
+    setStatus('Processing Uploaded File...');
+
+    try {
+      const audioBuffer = await processAudioForModel(file);
+      worker.current.postMessage({ audio: audioBuffer });
+    } catch (error) {
+      console.error("Error processing uploaded file:", error);
+      alert("Error processing audio file. Please ensure it's a valid audio format.");
+      setIsProcessing(false);
+      setStatus('Ready');
+    }
+  };
+
+  const fileInputRef = useRef(null);
+
   return (
     <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
       <main style={{ width: '100%' }}>
@@ -384,15 +408,45 @@ function App() {
                 <div className="session-container">
                   {/* TOP: Recording Section */}
                   <div className="glass-card recording-panel" style={{ padding: '1.5rem' }}>
-                    <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
-                      <button className={`record-btn ${isRecording ? 'recording' : ''}`} onClick={isRecording ? stopRecording : startRecording} disabled={!isReady || isProcessing}>
-                        {isProcessing ? <div className="spinner"></div> : (
-                          <svg viewBox="0 0 24 24" width="36" height="36" fill="white">
-                            {isRecording ? <rect x="6" y="6" width="12" height="12" rx="2" /> : <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />}
-                          </svg>
+                    <div style={{ display: 'flex', gap: '2rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: '1rem' }}>
+                        <button
+                          className={`record-btn ${isRecording ? 'recording' : ''}`}
+                          onClick={isRecording ? stopRecording : startRecording}
+                          disabled={!isReady || isProcessing}
+                          title={isRecording ? "Stop Recording" : "Start Recording"}
+                        >
+                          {isProcessing ? <div className="spinner"></div> : (
+                            <svg viewBox="0 0 24 24" width="36" height="36" fill="white">
+                              {isRecording ? <rect x="6" y="6" width="12" height="12" rx="2" /> : <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />}
+                            </svg>
+                          )}
+                        </button>
+
+                        {!isRecording && (
+                          <>
+                            <input
+                              type="file"
+                              ref={fileInputRef}
+                              onChange={handleFileUpload}
+                              accept="audio/*"
+                              style={{ display: 'none' }}
+                            />
+                            <button
+                              className="upload-btn"
+                              onClick={() => fileInputRef.current?.click()}
+                              disabled={!isReady || isProcessing}
+                              title="Upload Audio File"
+                            >
+                              <svg className="upload-icon" viewBox="0 0 24 24" width="32" height="32" fill="currentColor">
+                                <path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" />
+                              </svg>
+                            </button>
+                          </>
                         )}
-                      </button>
-                      <div style={{ flex: 1 }}>
+                      </div>
+
+                      <div style={{ flex: 1, minWidth: '200px' }}>
                         <div style={{ color: isRecording ? '#ef4444' : 'var(--primary)', fontWeight: 700, marginBottom: '0.5rem' }}>
                           {isRecording ? '• RECORDING...' : isProcessing ? status.toUpperCase() : 'READY TO RECORD'}
                         </div>

@@ -383,6 +383,37 @@ body {
   animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+.upload-btn {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  border: 1px solid var(--card-border);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  box-shadow: var(--shadow);
+  color: white;
+}
+
+.upload-btn:hover:not(:disabled) {
+  background: var(--btn-primary-bg);
+  transform: translateY(-2px);
+  border-color: var(--primary);
+}
+
+.upload-btn:hover:not(:disabled) .upload-icon {
+  color: #0296E0;
+}
+
+.upload-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 @keyframes pulse-ring {
   0% {
     box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
