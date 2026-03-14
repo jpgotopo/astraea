@@ -3,7 +3,11 @@ import TranscriptionWorker from './workers/transcriptionWorker?worker';
 import { processAudioForModel, cleanIpaOutput, float32ToWav } from './utils/audioUtils';
 import { saveData, getAllData, deleteData, getDataById } from './utils/db';
 
+import { useTranslation } from 'react-i18next';
+
 function App() {
+  const { t, i18n } = useTranslation();
+
   const [activeTab, setActiveTab] = useState('project'); // 'project', 'sessions', 'people'
   const [isReady, setIsReady] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -182,8 +186,8 @@ function App() {
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!currentSession?.id) return alert('Select or Create a session first');
-
+    if (!currentProject?.id) { alert(t('sessions.alertNoProject')); return; }
+    if (!currentSession?.id) { alert(t('sessions.alertNoSession')); return; }
     setSegments([]); // Reset segments for new upload
     segmentsRef.current = [];
     recordingSessionId.current = currentSession.id;
@@ -196,7 +200,7 @@ function App() {
       worker.current.postMessage({ audio: audioBuffer });
     } catch (error) {
       console.error("Error processing uploaded file:", error);
-      alert("Error processing audio file. Please ensure it's a valid audio format.");
+      alert(t('sessions.alertProcessError'));
       setIsProcessing(false);
       setStatus('Ready');
     }
@@ -223,29 +227,36 @@ function App() {
       <main style={{ width: '100%' }}>
         <header style={{ marginBottom: '3rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
           <div style={{ alignSelf: 'flex-end' }}>
-            <button
-              className="btn-secondary"
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              style={{ padding: '0.6rem 1.2rem', borderRadius: '10px' }}
-            >
-              {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
-            </button>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <select
+                value={i18n.language.substring(0, 2)}
+                onChange={(e) => i18n.changeLanguage(e.target.value)}
+                style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '1rem', fontWeight: 'bold', outline: 'none' }}
+              >
+                <option value="en">EN</option>
+                <option value="es">ES</option>
+                <option value="id">ID</option>
+              </select>
+              <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '1rem' }}>
+                {theme === 'light' ? t('app.themeLight') : t('app.themeDark')}
+              </button>
+            </div>
           </div>
-          <h1 className="title-gradient" style={{ fontSize: '4rem', marginBottom: '0.5rem', marginTop: '0' }}>Astraea</h1>
-          <p style={{ opacity: 0.6, color: 'var(--primary)', fontSize: '1.2rem', fontWeight: 600, margin: 0 }}>Fieldwork Management System</p>
+          <h1 className="title-gradient" style={{ fontSize: '4rem', marginBottom: '0.5rem', marginTop: '0' }}>{t('app.title')}</h1>
+          <p style={{ opacity: 0.6, color: 'var(--primary)', fontSize: '1.2rem', fontWeight: 600, margin: 0 }}>{t('app.subtitle')}</p>
         </header>
 
         <nav className="tabs-container">
-          <button className={`tab-btn ${activeTab === 'project' ? 'active' : ''}`} onClick={() => setActiveTab('project')}>Projects</button>
-          <button className={`tab-btn ${activeTab === 'people' ? 'active' : ''}`} onClick={() => setActiveTab('people')}>People</button>
-          <button className={`tab-btn ${activeTab === 'sessions' ? 'active' : ''}`} onClick={() => setActiveTab('sessions')}>Sessions</button>
+          <button className={`tab-btn ${activeTab === 'project' ? 'active' : ''}`} onClick={() => setActiveTab('project')}>{t('tabs.projects')}</button>
+          <button className={`tab-btn ${activeTab === 'people' ? 'active' : ''}`} onClick={() => setActiveTab('people')}>{t('tabs.people')}</button>
+          <button className={`tab-btn ${activeTab === 'sessions' ? 'active' : ''}`} onClick={() => setActiveTab('sessions')}>{t('tabs.sessions')}</button>
         </nav>
 
         {!isReady && (
           <div className="glass-card" style={{ textAlign: 'center', marginBottom: '3rem', padding: '3rem' }}>
-            <h2 style={{ marginTop: 0 }}>Initializing AI Phonetics Engine</h2>
+            <h2 style={{ marginTop: 0 }}>{t('app.initializing')}</h2>
             <div className="progress-container"><div className="progress-bar" style={{ width: `${progress}%` }}></div></div>
-            <p className="status-label">Downloading Neural Modules... {progress.toFixed(1)}%</p>
+            <p className="status-label">{t('app.downloading')} {progress.toFixed(1)}%</p>
           </div>
         )}
 
@@ -253,31 +264,31 @@ function App() {
         {activeTab === 'project' && (
           <div className="sidebar-layout">
             <aside>
-              <button className="btn-secondary primary" style={{ width: '100%', marginBottom: '1.5rem' }} onClick={() => setCurrentProject({})}>+ New Project</button>
+              <button className="btn-secondary primary" style={{ width: '100%', marginBottom: '1.5rem' }} onClick={() => setCurrentProject({})}>{t('projects.new')}</button>
               <div className="list-pane">
                 {projects.map(p => (
                   <div key={p.id} className={`list-item ${currentProject?.id === p.id ? 'selected' : ''}`} onClick={() => setCurrentProject(p)}>
-                    <strong style={{ display: 'block', fontSize: '1.1rem' }}>{p.name || 'Untitled Project'}</strong>
-                    <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>{p.region || 'No Region'}</span>
+                    <strong style={{ display: 'block', fontSize: '1.1rem' }}>{p.name || t('projects.untitled')}</strong>
+                    <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>{p.region || t('projects.noRegion')}</span>
                   </div>
                 ))}
               </div>
             </aside>
             <section className="glass-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                <h2 style={{ margin: 0 }}>Project Metadata</h2>
-                {currentProject?.id && <span style={{ opacity: 0.4, fontSize: '0.8rem' }}>UUID: {currentProject.id}</span>}
+                <h2 style={{ margin: 0 }}>{t('projects.metadata')}</h2>
+                {currentProject?.id && <span style={{ opacity: 0.4, fontSize: '0.8rem' }}>{t('projects.uuid')} {currentProject.id}</span>}
               </div>
-              <form onSubmit={handleSaveProject} className="field-grid">
-                <div className="field-group"><label>Nombre del Proyecto*</label><input name="name" defaultValue={currentProject?.name} required placeholder="e.g. Documentación Quechua" /></div>
-                <div className="field-group"><label>Funding Project</label><input name="funding" defaultValue={currentProject?.funding} placeholder="Fondo u Organización" /></div>
-                <div className="field-group"><label>Región</label><input name="region" defaultValue={currentProject?.region} placeholder="Departamento / Estado" /></div>
-                <div className="field-group"><label>País</label><input name="country" defaultValue={currentProject?.country} placeholder="Nombre del país" /></div>
-                <div className="field-group" style={{ gridColumn: 'span 2' }}><label>Dirección</label><input name="address" defaultValue={currentProject?.address} placeholder="Ubicación o base local" /></div>
-                <div className="field-group" style={{ gridColumn: 'span 2' }}><label>Descripción</label><textarea name="description" defaultValue={currentProject?.description} placeholder="Resumen y objetivos del proyecto" /></div>
-                <div className="field-group"><label>Derechos de Autor</label><input name="copyright" defaultValue={currentProject?.copyright} placeholder="e.g. CC BY-NC" /></div>
-                <div className="field-group"><label>Responsable o Depositor</label><input name="responsible" defaultValue={currentProject?.responsible} placeholder="Investigador principal" /></div>
-                <button type="submit" className="btn-secondary primary" style={{ gridColumn: 'span 2', marginTop: '1.5rem' }}>Update Project Information</button>
+              <form onSubmit={(e) => { handleSaveProject(e); alert(t('projects.alertSave')); }} className="field-grid">
+                <div className="field-group"><label>{t('projects.name')}</label><input name="name" defaultValue={currentProject?.name} required placeholder={t('projects.namePlaceholder')} /></div>
+                <div className="field-group"><label>{t('projects.funding')}</label><input name="funding" defaultValue={currentProject?.funding} placeholder={t('projects.fundingPlaceholder')} /></div>
+                <div className="field-group"><label>{t('projects.region')}</label><input name="region" defaultValue={currentProject?.region} placeholder={t('projects.regionPlaceholder')} /></div>
+                <div className="field-group"><label>{t('projects.country')}</label><input name="country" defaultValue={currentProject?.country} placeholder={t('projects.countryPlaceholder')} /></div>
+                <div className="field-group" style={{ gridColumn: 'span 2' }}><label>{t('projects.address')}</label><input name="address" defaultValue={currentProject?.address} placeholder={t('projects.addressPlaceholder')} /></div>
+                <div className="field-group" style={{ gridColumn: 'span 2' }}><label>{t('projects.description')}</label><textarea name="description" defaultValue={currentProject?.description} placeholder={t('projects.descriptionPlaceholder')} /></div>
+                <div className="field-group"><label>{t('projects.copyright')}</label><input name="copyright" defaultValue={currentProject?.copyright} placeholder={t('projects.copyrightPlaceholder')} /></div>
+                <div className="field-group"><label>{t('projects.responsible')}</label><input name="responsible" defaultValue={currentProject?.responsible} placeholder={t('projects.responsiblePlaceholder')} /></div>
+                <button type="submit" className="btn-secondary primary" style={{ gridColumn: 'span 2', marginTop: '1.5rem' }}>{t('projects.updateBtn')}</button>
               </form>
             </section>
           </div>
@@ -287,49 +298,49 @@ function App() {
         {activeTab === 'people' && (
           <div className="sidebar-layout">
             <aside>
-              <button className="btn-secondary primary" style={{ width: '100%', marginBottom: '1.5rem' }} onClick={() => setCurrentPerson({})}>+ New Person</button>
+              <button className="btn-secondary primary" style={{ width: '100%', marginBottom: '1.5rem' }} onClick={() => setCurrentPerson({})}>{t('people.new')}</button>
               <div className="list-pane">
                 {people.map(p => (
                   <div key={p.id} className={`list-item ${currentPerson?.id === p.id ? 'selected' : ''}`} onClick={() => setCurrentPerson(p)}>
-                    <strong style={{ display: 'block', fontSize: '1.1rem' }}>{p.fullName || 'New Person'}</strong>
-                    <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>{p.nickname ? `"${p.nickname}"` : p.code || 'No Code'}</span>
+                    <strong style={{ display: 'block', fontSize: '1.1rem' }}>{p.fullName || t('people.untitled')}</strong>
+                    <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>{p.nickname ? `"${p.nickname}"` : p.code || t('people.noCode')}</span>
                   </div>
                 ))}
               </div>
             </aside>
             <section className="glass-card">
-              <h2 style={{ marginBottom: '2rem' }}>Consultant Profile</h2>
-              <form onSubmit={handleSavePerson} className="field-grid">
-                <div className="field-group"><label>Nombre Completo*</label><input name="fullName" defaultValue={currentPerson?.fullName} required placeholder="Official Name" /></div>
-                <div className="field-group"><label>Nickname</label><input name="nickname" defaultValue={currentPerson?.nickname} placeholder="Community name" /></div>
-                <div className="field-group"><label>Código</label><input name="code" defaultValue={currentPerson?.code} placeholder="e.g. SPK01" /></div>
-                <div className="field-group"><label>Año de nacimiento</label><input type="number" name="birthYear" defaultValue={currentPerson?.birthYear} placeholder="YYYY" /></div>
+              <h2 style={{ marginBottom: '2rem' }}>{t('people.profile')}</h2>
+              <form onSubmit={(e) => { handleSavePerson(e); alert(t('people.alertSave')); }} className="field-grid">
+                <div className="field-group"><label>{t('people.fullName')}</label><input name="fullName" defaultValue={currentPerson?.fullName} required placeholder={t('people.fullNamePlaceholder')} /></div>
+                <div className="field-group"><label>{t('people.nickname')}</label><input name="nickname" defaultValue={currentPerson?.nickname} placeholder={t('people.nicknamePlaceholder')} /></div>
+                <div className="field-group"><label>{t('people.code')}</label><input name="code" defaultValue={currentPerson?.code} placeholder={t('people.codePlaceholder')} /></div>
+                <div className="field-group"><label>{t('people.birthYear')}</label><input type="number" name="birthYear" defaultValue={currentPerson?.birthYear} placeholder={t('people.birthYearPlaceholder')} /></div>
                 <div className="field-group">
-                  <label>Género</label>
+                  <label>{t('people.gender')}</label>
                   <select name="gender" defaultValue={currentPerson?.gender}>
-                    <option value="">Select...</option>
-                    <option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option>
+                    <option value="">{t('people.select')}</option>
+                    <option value="Male">{t('people.male')}</option><option value="Female">{t('people.female')}</option><option value="Other">{t('people.other')}</option>
                   </select>
                 </div>
-                <div className="field-group"><label>Lengua Primaria</label><input name="primaryLang" defaultValue={currentPerson?.primaryLang} placeholder="L1" /></div>
-                <div className="field-group"><label>Aprendida en</label><input name="learnedIn" defaultValue={currentPerson?.learnedIn} placeholder="Lugar donde aprendió L1" /></div>
-                <div className="field-group"><label>Grupo Étnico</label><input name="ethnic" defaultValue={currentPerson?.ethnic} placeholder="Identidad / Etnia" /></div>
+                <div className="field-group"><label>{t('people.primaryLang')}</label><input name="primaryLang" defaultValue={currentPerson?.primaryLang} placeholder={t('people.primaryLangPlaceholder')} /></div>
+                <div className="field-group"><label>{t('people.learnedIn')}</label><input name="learnedIn" defaultValue={currentPerson?.learnedIn} placeholder={t('people.learnedInPlaceholder')} /></div>
+                <div className="field-group"><label>{t('people.ethnic')}</label><input name="ethnic" defaultValue={currentPerson?.ethnic} placeholder={t('people.ethnicPlaceholder')} /></div>
 
                 <div className="field-group" style={{ gridColumn: 'span 2' }}>
-                  <label>Otros idiomas (Máximo 4)</label>
+                  <label>{t('people.otherLangs')}</label>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
-                    <input name="other1" defaultValue={currentPerson?.other1} placeholder="Idioma 2" />
-                    <input name="other2" defaultValue={currentPerson?.other2} placeholder="Idioma 3" />
-                    <input name="other3" defaultValue={currentPerson?.other3} placeholder="Idioma 4" />
-                    <input name="other4" defaultValue={currentPerson?.other4} placeholder="Idioma 5" />
+                    <input name="other1" defaultValue={currentPerson?.other1} placeholder={t('people.lang2')} />
+                    <input name="other2" defaultValue={currentPerson?.other2} placeholder={t('people.lang3')} />
+                    <input name="other3" defaultValue={currentPerson?.other3} placeholder={t('people.lang4')} />
+                    <input name="other4" defaultValue={currentPerson?.other4} placeholder={t('people.lang5')} />
                   </div>
                 </div>
 
-                <div className="field-group"><label>Educación</label><input name="education" defaultValue={currentPerson?.education} placeholder="Nivel alcanzado" /></div>
-                <div className="field-group"><label>Ocupación actual</label><input name="occupation" defaultValue={currentPerson?.occupation} placeholder="Trabajo actual" /></div>
-                <div className="field-group" style={{ gridColumn: 'span 2' }}><label>Contacto</label><input name="contact" defaultValue={currentPerson?.contact} placeholder="Teléfono o medio de contacto" /></div>
+                <div className="field-group"><label>{t('people.education')}</label><input name="education" defaultValue={currentPerson?.education} placeholder={t('people.educationPlaceholder')} /></div>
+                <div className="field-group"><label>{t('people.occupation')}</label><input name="occupation" defaultValue={currentPerson?.occupation} placeholder={t('people.occupationPlaceholder')} /></div>
+                <div className="field-group" style={{ gridColumn: 'span 2' }}><label>{t('people.contact')}</label><input name="contact" defaultValue={currentPerson?.contact} placeholder={t('people.contactPlaceholder')} /></div>
 
-                <button type="submit" className="btn-secondary primary" style={{ gridColumn: 'span 2', marginTop: '1.5rem' }}>Save Consultant Record</button>
+                <button type="submit" className="btn-secondary primary" style={{ gridColumn: 'span 2', marginTop: '1.5rem' }}>{t('people.updateBtn')}</button>
               </form>
             </section>
           </div>
@@ -346,7 +357,7 @@ function App() {
                 setSegments([]);
                 segmentsRef.current = [];
                 setIsEditing(false);
-              }}>+ New Session</button>
+              }}>{t('sessions.new')}</button>
               <div className="list-pane">
                 {sessions.filter(s => s.projectId === currentProject?.id).map(s => (
                   <div key={s.id} className={`list-item ${currentSession?.id === s.id ? 'selected' : ''}`} onClick={() => {
@@ -357,8 +368,8 @@ function App() {
                     segmentsRef.current = s.segments || [];
                     setIsEditing(false);
                   }}>
-                    <strong style={{ display: 'block', fontSize: '1.1rem' }}>{s.title || `Session ${s.id}`}</strong>
-                    <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>{s.date || 'No Date'}</span>
+                    <strong style={{ display: 'block', fontSize: '1.1rem' }}>{s.title || t('sessions.untitled')}</strong>
+                    <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>{s.date || t('sessions.noDate')}</span>
                   </div>
                 ))}
               </div>
@@ -366,64 +377,64 @@ function App() {
             <section className="main-pane">
               <div className="session-header">
                 <div>
-                  <h2 style={{ margin: 0 }}>{currentSession?.title || 'New Session'}</h2>
-                  {currentProject && <span style={{ color: '#facc15', fontSize: '0.9rem' }}>Project: {currentProject.name}</span>}
+                  <h2 style={{ margin: 0 }}>{currentSession?.title || t('sessions.untitled')}</h2>
+                  {currentProject && <span style={{ color: '#facc15', fontSize: '0.9rem' }}>{t('sessions.projectLabel', { name: currentProject.name })}</span>}
                 </div>
                 {currentSession?.id && (
                   <button className="metadata-toggle" onClick={() => setShowMetadata(!showMetadata)}>
-                    {showMetadata ? 'Hide Metadata' : 'Edit Metadata'}
+                    {showMetadata ? t('sessions.hideMetadata') : t('sessions.editMetadata')}
                   </button>
                 )}
               </div>
 
               {(!currentSession?.id || showMetadata) && (
                 <div className="glass-card" style={{ padding: '2rem', marginBottom: '1rem' }}>
-                  <form onSubmit={handleSaveSession} className="field-grid">
-                    <div className="field-group"><label>Session ID</label><input name="sessionId" defaultValue={currentSession?.sessionId} placeholder="e.g. SES-001" /></div>
-                    <div className="field-group"><label>Session Title*</label><input name="title" defaultValue={currentSession?.title} required placeholder="Descriptive title" /></div>
-                    <div className="field-group"><label>Recording Date</label><input type="date" name="date" defaultValue={currentSession?.date} /></div>
-                    <div className="field-group"><label>Field Site / Place</label><input name="place" defaultValue={currentSession?.place} placeholder="Location of recording" /></div>
+                  <form onSubmit={(e) => { handleSaveSession(e); alert(t('sessions.alertSave')); }} className="field-grid">
+                    <div className="field-group"><label>{t('sessions.sessionId')}</label><input name="sessionId" defaultValue={currentSession?.sessionId} placeholder={t('sessions.sessionIdPlaceholder')} /></div>
+                    <div className="field-group"><label>{t('sessions.title')}</label><input name="title" defaultValue={currentSession?.title} required placeholder={t('sessions.titlePlaceholder')} /></div>
+                    <div className="field-group"><label>{t('sessions.date')}</label><input type="date" name="date" defaultValue={currentSession?.date} /></div>
+                    <div className="field-group"><label>{t('sessions.place')}</label><input name="place" defaultValue={currentSession?.place} placeholder={t('sessions.placePlaceholder')} /></div>
 
                     <div className="field-group">
-                      <label>Persona (Dueña de la voz)*</label>
+                      <label>{t('sessions.speaker')}</label>
                       <select name="personId" defaultValue={currentSession?.personId} required>
-                        <option value="">Select a person...</option>
+                        <option value="">{t('sessions.selectPerson')}</option>
                         {people.map(p => <option key={p.id} value={p.id}>{p.fullName}</option>)}
                       </select>
                     </div>
 
                     <div className="field-group">
-                      <label>Género (Timbre de voz)</label>
+                      <label>{t('sessions.genderVoice')}</label>
                       <select name="gender" defaultValue={currentSession?.gender}>
-                        <option value="">Select...</option>
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                        <option value="Other">Other / Neutral</option>
+                        <option value="">{t('people.select')}</option>
+                        <option value="Male">{t('people.male')}</option>
+                        <option value="Female">{t('people.female')}</option>
+                        <option value="Other">{t('sessions.otherNeutral')}</option>
                       </select>
                     </div>
 
-                    <div className="field-group"><label>Consultor / Ayudante</label><input name="consultant" defaultValue={currentSession?.consultant} placeholder="Researcher or assistant" /></div>
+                    <div className="field-group"><label>{t('sessions.consultant')}</label><input name="consultant" defaultValue={currentSession?.consultant} placeholder={t('sessions.consultantPlaceholder')} /></div>
 
                     <div className="field-group">
-                      <label>Situación / Contexto</label>
+                      <label>{t('sessions.context')}</label>
                       <select name="context" defaultValue={currentSession?.context}>
-                        <option value="">Select context...</option>
-                        <option value="Narración">Narración</option>
-                        <option value="Cuento">Cuento</option>
-                        <option value="Entrevista">Entrevista</option>
-                        <option value="Conversación">Conversación</option>
-                        <option value="Lista de palabras">Lista de palabras</option>
-                        <option value="Otro">Otro</option>
+                        <option value="">{t('sessions.selectContext')}</option>
+                        <option value="Narration">{t('sessions.contextNarration')}</option>
+                        <option value="Storytale">{t('sessions.contextStorytale')}</option>
+                        <option value="Interview">{t('sessions.contextInterview')}</option>
+                        <option value="Conversation">{t('sessions.contextConversation')}</option>
+                        <option value="Word List">{t('sessions.contextWordList')}</option>
+                        <option value="Other">{t('sessions.contextOther')}</option>
                       </select>
                     </div>
 
                     <div className="field-group" style={{ gridColumn: 'span 2' }}>
-                      <label>Descripción de la Sesión</label>
-                      <textarea name="description" defaultValue={currentSession?.description} placeholder="Detalles técnicos o notas sobre el contenido del audio" />
+                      <label>{t('sessions.description')}</label>
+                      <textarea name="description" defaultValue={currentSession?.description} placeholder={t('sessions.descriptionPlaceholder')} />
                     </div>
 
                     <button type="submit" className="btn-secondary primary" style={{ gridColumn: 'span 2' }}>
-                      {currentSession?.id ? 'Update Metadata' : 'Create Session to Start Recording'}
+                      {currentSession?.id ? t('sessions.updateBtn') : t('sessions.createBtn')}
                     </button>
                   </form>
                 </div>
@@ -439,7 +450,7 @@ function App() {
                           className={`record-btn ${isRecording ? 'recording' : ''}`}
                           onClick={isRecording ? stopRecording : startRecording}
                           disabled={!isReady || isProcessing}
-                          title={isRecording ? "Stop Recording" : "Start Recording"}
+                          title={isRecording ? t('sessions.stopRecording') : t('sessions.startRecording')}
                         >
                           {isProcessing ? <div className="spinner"></div> : (
                             <svg viewBox="0 0 24 24" width="36" height="36" fill="white">
@@ -461,7 +472,7 @@ function App() {
                               className="upload-btn"
                               onClick={() => fileInputRef.current?.click()}
                               disabled={!isReady || isProcessing}
-                              title="Upload Audio File"
+                              title={t('sessions.uploadAudioFile')}
                             >
                               <svg className="upload-icon" viewBox="0 0 24 24" width="32" height="32" fill="currentColor">
                                 <path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" />
@@ -473,7 +484,7 @@ function App() {
 
                       <div style={{ flex: 1, minWidth: '200px' }}>
                         <div style={{ color: isRecording ? '#ef4444' : 'var(--primary)', fontWeight: 700, marginBottom: '0.5rem' }}>
-                          {isRecording ? '• RECORDING...' : isProcessing ? status.toUpperCase() : 'READY TO RECORD'}
+                          {isRecording ? t('sessions.recordingState') : isProcessing ? status.toUpperCase() : t('sessions.readyState')}
                         </div>
                         {currentSession.audio && (
                           <audio controls src={URL.createObjectURL(currentSession.audio)} style={{ width: '100%', height: '40px' }} />
@@ -485,14 +496,14 @@ function App() {
                   {/* BOTTOM: Transcription Section */}
                   <div className="glass-card transcription-panel" style={{ padding: '1.5rem', flex: 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-                      <h3 style={{ margin: 0, color: '#facc15' }}>Transcription & Translation</h3>
+                      <h3 style={{ margin: 0, color: '#facc15' }}>{t('sessions.transcriptionTitle')}</h3>
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         {!isEditing ? (
                           <button className="btn-secondary" onClick={() => {
                             setIsEditing(true);
                             setEditText(transcript);
                             setEditTranslation(translation);
-                          }} disabled={!transcript && !translation && segments.length === 0}>Edit General Text</button>
+                          }} disabled={!transcript && !translation && segments.length === 0}>{t('sessions.editBtn')}</button>
                         ) : (
                           <>
                             <button className="btn-secondary primary" onClick={async () => {
@@ -503,8 +514,8 @@ function App() {
                               setTranscript(editText);
                               setTranslation(editTranslation);
                               setIsEditing(false);
-                            }}>Save General Text</button>
-                            <button className="btn-secondary" onClick={() => setIsEditing(false)}>Cancel</button>
+                            }}>{t('sessions.saveBtn')}</button>
+                            <button className="btn-secondary" onClick={() => setIsEditing(false)}>{t('app.cancelBtn')}</button>
                           </>
                         )}
                         <button className="btn-secondary" onClick={() => {
@@ -514,7 +525,7 @@ function App() {
                           a.href = url;
                           a.download = `session_${currentSession.id}_transcript.txt`;
                           a.click();
-                        }} disabled={!transcript}>Export Transcript (TXT)</button>
+                        }} disabled={!transcript}>{t('sessions.exportTransBtn')}</button>
                         <button className="btn-secondary" onClick={() => {
                           const blob = new Blob([translation], { type: 'text/plain' });
                           const url = URL.createObjectURL(blob);
@@ -522,7 +533,7 @@ function App() {
                           a.href = url;
                           a.download = `session_${currentSession.id}_translation.txt`;
                           a.click();
-                        }} disabled={!translation}>Export Translation (TXT)</button>
+                        }} disabled={!translation}>{t('sessions.exportTranslBtn')}</button>
                       </div>
                     </div>
 
@@ -531,14 +542,14 @@ function App() {
                         segments.map((seg, idx) => (
                           <div key={seg.id} className="item-card segment-grid" style={{ alignItems: 'flex-start' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                              <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Segmento {idx + 1}</span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{t('sessions.segmentHeader', { num: idx + 1 })}</span>
                               <audio controls src={URL.createObjectURL(seg.audioBlob)} style={{ width: '100%', height: '32px' }} />
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--primary)' }}>TRANSCRIPTION</label>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--primary)' }}>{t('sessions.transcriptionLabel')}</label>
                                 <textarea
-                                  placeholder="Enter transcription here..."
+                                  placeholder={t('sessions.transcriptionPlaceholder')}
                                   value={seg.transcript || ''}
                                   onChange={async (e) => {
                                     const newSegments = [...segments];
@@ -558,9 +569,9 @@ function App() {
                                 />
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--secondary)' }}>FREE TRANSLATION</label>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--secondary)' }}>{t('sessions.translationLabel')}</label>
                                 <textarea
-                                  placeholder="Enter free translation here..."
+                                  placeholder={t('sessions.translationPlaceholder')}
                                   value={seg.translation || ''}
                                   onChange={async (e) => {
                                     const newSegments = [...segments];
@@ -584,8 +595,8 @@ function App() {
                         ))
                       ) : isEditing ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
-                          <textarea value={editText} onChange={e => setEditText(e.target.value)} placeholder="Edit General Transcription..." style={{ ...textAreaStyle, flex: 1 }} />
-                          <textarea value={editTranslation} onChange={e => setEditTranslation(e.target.value)} placeholder="Edit General Translation..." style={{ ...textAreaStyle, flex: 1 }} />
+                          <textarea value={editText} onChange={e => setEditText(e.target.value)} placeholder={t('sessions.editTranscrPlaceholder')} style={{ ...textAreaStyle, flex: 1 }} />
+                          <textarea value={editTranslation} onChange={e => setEditTranslation(e.target.value)} placeholder={t('sessions.editTranslPlaceholder')} style={{ ...textAreaStyle, flex: 1 }} />
                         </div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
