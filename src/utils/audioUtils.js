@@ -49,45 +49,42 @@ export function normalizeAudio(samples) {
     return normalized;
 }
 
-/**
- * Splits audio into segments based on silence detection.
- */
 export function segmentAudioBySilence(audioData, threshold = 0.015, minSilenceLen = 0.8) {
     const sampleRate = 16000;
     const minSilenceSamples = minSilenceLen * sampleRate;
-    const paddingSamples = 0.2 * sampleRate; // 200ms padding
     const segments = [];
 
     let start = 0;
     let silenceCounter = 0;
-    let inSilence = false;
+    let foundSound = false; // Tracks if we've actually seen sound in the current window
 
     for (let i = 0; i < audioData.length; i++) {
         const amplitude = Math.abs(audioData[i]);
 
         if (amplitude < threshold) {
             silenceCounter++;
-        } else {
-            if (inSilence && silenceCounter >= minSilenceSamples) {
-                // End of segment reached
-                if (i - start > sampleRate * 0.3) {
-                    // Pull back slightly to include the silence offset but add padding
-                    const end = Math.min(audioData.length, i - silenceCounter + paddingSamples);
-                    segments.push(audioData.slice(start, end));
-                    start = Math.max(0, i - Math.floor(paddingSamples / 2));
-                }
-            }
-            silenceCounter = 0;
-            inSilence = false;
-        }
 
-        if (silenceCounter >= minSilenceSamples) {
-            inSilence = true;
+            // If we have found sound previously, and now we've hit enough silence, cut a segment
+            if (foundSound && silenceCounter >= minSilenceSamples) {
+                // Determine end. We cut just before this long silence started.
+                const end = Math.max(start, i - silenceCounter + Math.floor(sampleRate * 0.2)); // 200ms trailing padding
+
+                // Only save the segment if it's decently long (e.g. > 0.5s) to avoid micro-blips
+                if (end - start > sampleRate * 0.5) {
+                    segments.push(audioData.slice(start, end));
+                }
+
+                start = i; // Reset start to the current position (middle of silence)
+                foundSound = false; // Reset sound flag for the next segment
+            }
+        } else {
+            silenceCounter = 0;
+            foundSound = true; // We've heard something loud enough
         }
     }
 
-    // Push final segment if any
-    if (start < audioData.length - sampleRate * 0.1) {
+    // Push the final segment if there's any remaining sound
+    if (foundSound && audioData.length - start > sampleRate * 0.5) {
         segments.push(audioData.slice(start));
     }
 

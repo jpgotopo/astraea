@@ -31,8 +31,10 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [translation, setTranslation] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
+  const [editTranslation, setEditTranslation] = useState('');
   const [showMetadata, setShowMetadata] = useState(false);
   const [segments, setSegments] = useState([]); // [{id, audioBlob, transcript}]
 
@@ -41,6 +43,7 @@ function App() {
   const chunks = useRef([]);
   const recordingSessionId = useRef(null); // Link recording to a specific session ID
   const currentAudioBlob = useRef(null);
+  const segmentsRef = useRef([]); // Ref to keep track of latest segments inside async worker callbacks
 
   useEffect(() => {
     const initData = async () => {
@@ -71,7 +74,8 @@ function App() {
           audioBlob: audioBlob,
           transcript: data.text
         };
-        setSegments(prev => [...prev, newSegment]);
+        segmentsRef.current = [...segmentsRef.current, newSegment];
+        setSegments(segmentsRef.current);
         setTranscript(data.fullTranscript);
       }
       else if (data.status === 'complete') {
@@ -89,7 +93,7 @@ function App() {
               ...sessionToUpdate,
               transcript: result,
               audio: currentAudioBlob.current,
-              segments: segments // This might be slightly stale if segments state hasn't updated yet?
+              segments: segmentsRef.current
             };
             // Use functional update or ref for segments to be safe, but let's try this first
             await saveData('sessions', updated);
@@ -137,7 +141,7 @@ function App() {
     const sessionData = {
       ...data,
       projectId: currentProject.id,
-      ...(currentSession?.id ? { id: currentSession.id, audio: currentSession.audio, transcript: currentSession.transcript } : {})
+      ...(currentSession?.id ? { id: currentSession.id, audio: currentSession.audio, transcript: currentSession.transcript, translation: currentSession.translation } : {})
     };
     const id = await saveData('sessions', sessionData);
     const updated = await getDataById('sessions', id);
@@ -154,6 +158,7 @@ function App() {
     mediaRecorder.current = new MediaRecorder(stream);
     chunks.current = [];
     setSegments([]); // Reset segments for new recording
+    segmentsRef.current = [];
     recordingSessionId.current = currentSession.id;
 
     mediaRecorder.current.ondataavailable = (e) => chunks.current.push(e.data);
@@ -180,6 +185,7 @@ function App() {
     if (!currentSession?.id) return alert('Select or Create a session first');
 
     setSegments([]); // Reset segments for new upload
+    segmentsRef.current = [];
     recordingSessionId.current = currentSession.id;
     currentAudioBlob.current = file;
     setIsProcessing(true);
@@ -197,6 +203,20 @@ function App() {
   };
 
   const fileInputRef = useRef(null);
+
+  const textAreaStyle = {
+    width: '100%',
+    background: 'var(--input-bg)',
+    color: 'var(--text-main)',
+    border: '1px solid var(--card-border)',
+    borderRadius: '8px',
+    padding: '0.75rem',
+    fontSize: '1rem',
+    fontFamily: 'Inter',
+    resize: 'vertical',
+    minHeight: '80px',
+    boxSizing: 'border-box'
+  };
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
@@ -322,6 +342,9 @@ function App() {
               <button className="btn-secondary primary" style={{ width: '100%', marginBottom: '1.5rem' }} onClick={() => {
                 setCurrentSession({});
                 setTranscript('');
+                setTranslation('');
+                setSegments([]);
+                segmentsRef.current = [];
                 setIsEditing(false);
               }}>+ New Session</button>
               <div className="list-pane">
@@ -329,7 +352,9 @@ function App() {
                   <div key={s.id} className={`list-item ${currentSession?.id === s.id ? 'selected' : ''}`} onClick={() => {
                     setCurrentSession(s);
                     setTranscript(s.transcript || '');
+                    setTranslation(s.translation || '');
                     setSegments(s.segments || []);
+                    segmentsRef.current = s.segments || [];
                     setIsEditing(false);
                   }}>
                     <strong style={{ display: 'block', fontSize: '1.1rem' }}>{s.title || `Session ${s.id}`}</strong>
@@ -459,24 +484,26 @@ function App() {
 
                   {/* BOTTOM: Transcription Section */}
                   <div className="glass-card transcription-panel" style={{ padding: '1.5rem', flex: 1 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                      <h3 style={{ margin: 0, color: '#facc15' }}>Transcription</h3>
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+                      <h3 style={{ margin: 0, color: '#facc15' }}>Transcription & Translation</h3>
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         {!isEditing ? (
                           <button className="btn-secondary" onClick={() => {
                             setIsEditing(true);
                             setEditText(transcript);
-                          }} disabled={!transcript}>Edit Transcript</button>
+                            setEditTranslation(translation);
+                          }} disabled={!transcript && !translation && segments.length === 0}>Edit General Text</button>
                         ) : (
                           <>
                             <button className="btn-secondary primary" onClick={async () => {
-                              const updated = { ...currentSession, transcript: editText };
+                              const updated = { ...currentSession, transcript: editText, translation: editTranslation };
                               await saveData('sessions', updated);
                               setSessions(prev => prev.map(s => s.id === updated.id ? updated : s));
                               setCurrentSession(updated);
                               setTranscript(editText);
+                              setTranslation(editTranslation);
                               setIsEditing(false);
-                            }}>Save Changes</button>
+                            }}>Save General Text</button>
                             <button className="btn-secondary" onClick={() => setIsEditing(false)}>Cancel</button>
                           </>
                         )}
@@ -487,56 +514,89 @@ function App() {
                           a.href = url;
                           a.download = `session_${currentSession.id}_transcript.txt`;
                           a.click();
-                        }} disabled={!transcript}>Export TXT</button>
+                        }} disabled={!transcript}>Export Transcript (TXT)</button>
+                        <button className="btn-secondary" onClick={() => {
+                          const blob = new Blob([translation], { type: 'text/plain' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `session_${currentSession.id}_translation.txt`;
+                          a.click();
+                        }} disabled={!translation}>Export Translation (TXT)</button>
                       </div>
                     </div>
 
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
                       {segments.length > 0 ? (
                         segments.map((seg, idx) => (
-                          <div key={seg.id} className="item-card segment-grid">
+                          <div key={seg.id} className="item-card segment-grid" style={{ alignItems: 'flex-start' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                               <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Segmento {idx + 1}</span>
                               <audio controls src={URL.createObjectURL(seg.audioBlob)} style={{ width: '100%', height: '32px' }} />
                             </div>
-                            <div>
-                              <textarea
-                                value={seg.transcript}
-                                onChange={async (e) => {
-                                  const newSegments = [...segments];
-                                  newSegments[idx].transcript = e.target.value;
-                                  setSegments(newSegments);
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--primary)' }}>TRANSCRIPTION</label>
+                                <textarea
+                                  placeholder="Enter transcription here..."
+                                  value={seg.transcript || ''}
+                                  onChange={async (e) => {
+                                    const newSegments = [...segments];
+                                    newSegments[idx].transcript = e.target.value;
+                                    setSegments(newSegments);
 
-                                  // Sync with full transcript
-                                  const newFull = newSegments.map(s => s.transcript).join(' ');
-                                  setTranscript(newFull);
+                                    const newFull = newSegments.map(s => s.transcript).filter(Boolean).join(' ');
+                                    setTranscript(newFull);
 
-                                  // Auto-save to DB for segments
-                                  if (currentSession?.id) {
-                                    const updated = { ...currentSession, segments: newSegments, transcript: newFull };
-                                    await saveData('sessions', updated);
-                                    setSessions(prev => prev.map(s => s.id === updated.id ? updated : s));
-                                  }
-                                }}
-                                style={{
-                                  width: '100%',
-                                  background: 'var(--input-bg)',
-                                  color: 'var(--text-main)',
-                                  border: '1px solid var(--card-border)',
-                                  borderRadius: '10px',
-                                  padding: '0.75rem',
-                                  fontSize: '1.1rem',
-                                  fontFamily: 'Inter',
-                                  resize: 'vertical',
-                                  minHeight: '60px'
-                                }}
-                              />
+                                    if (currentSession?.id) {
+                                      const updated = { ...currentSession, segments: newSegments, transcript: newFull };
+                                      await saveData('sessions', updated);
+                                      setSessions(prev => prev.map(s => s.id === updated.id ? updated : s));
+                                    }
+                                  }}
+                                  style={textAreaStyle}
+                                />
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--secondary)' }}>FREE TRANSLATION</label>
+                                <textarea
+                                  placeholder="Enter free translation here..."
+                                  value={seg.translation || ''}
+                                  onChange={async (e) => {
+                                    const newSegments = [...segments];
+                                    newSegments[idx].translation = e.target.value;
+                                    setSegments(newSegments);
+
+                                    const newFullTrans = newSegments.map(s => s.translation).filter(Boolean).join(' ');
+                                    setTranslation(newFullTrans);
+
+                                    if (currentSession?.id) {
+                                      const updated = { ...currentSession, segments: newSegments, translation: newFullTrans };
+                                      await saveData('sessions', updated);
+                                      setSessions(prev => prev.map(s => s.id === updated.id ? updated : s));
+                                    }
+                                  }}
+                                  style={textAreaStyle}
+                                />
+                              </div>
                             </div>
                           </div>
                         ))
+                      ) : isEditing ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
+                          <textarea value={editText} onChange={e => setEditText(e.target.value)} placeholder="Edit General Transcription..." style={{ ...textAreaStyle, flex: 1 }} />
+                          <textarea value={editTranslation} onChange={e => setEditTranslation(e.target.value)} placeholder="Edit General Translation..." style={{ ...textAreaStyle, flex: 1 }} />
+                        </div>
                       ) : (
-                        <div className="ipa-box" style={{ flex: 1, padding: '1.5rem', fontSize: '2rem' }}>
-                          {transcript || '[ No transcript yet ]'}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
+                          <div className="ipa-box" style={{ flex: 1, padding: '1.5rem', fontSize: '1.2rem', textAlign: 'left', minHeight: '100px', display: 'block', wordWrap: 'break-word', whiteSpace: 'pre-wrap' }}>
+                            <div style={{ fontSize: '0.8rem', opacity: 0.5, marginBottom: '0.5rem', textTransform: 'uppercase' }}>Transcription</div>
+                            {transcript || '[ No transcript yet ]'}
+                          </div>
+                          <div className="ipa-box" style={{ flex: 1, padding: '1.5rem', fontSize: '1.2rem', textAlign: 'left', minHeight: '100px', display: 'block', color: 'var(--text-main)', wordWrap: 'break-word', whiteSpace: 'pre-wrap' }}>
+                            <div style={{ fontSize: '0.8rem', opacity: 0.5, marginBottom: '0.5rem', textTransform: 'uppercase' }}>Translation</div>
+                            {translation || '[ No translation yet ]'}
+                          </div>
                         </div>
                       )}
                     </div>
